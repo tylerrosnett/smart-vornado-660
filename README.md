@@ -1,6 +1,6 @@
 # Smart Vornado 660
 
-I've had this Vornado 660 fan for years, it's rock solid and I love it. But I've automated most of my house, and it was annoying not being able to control the fan from my phone. I didn't want to replace a perfectly good fan, so I bought an ESP32 (~$8) and a handful of transistors (~$5) and did this mod instead.
+I've had this Vornado 660 fan for years, it's rock solid and I love it. But I've automated most of my house, and it was annoying not being able to control the fan from my phone. I didn't want to replace a perfectly good fan, so I bought an ESP32 (\~$8) and a handful of transistors (\~$5) and did this mod instead.
 
 Now it shows up in Home Assistant and HomeKit as a proper fan entity: toggle on/off, 4-step speed control, all over the network. The modification is entirely reversible. The fan's own electronics handle all the mains work; my board just emulates fingertip presses on the existing buttons via transistor "button injection."
 
@@ -24,7 +24,7 @@ A standard, non-smart Vornado 660 shows up in Home Assistant (and HomeKit) as a 
 
 ## How it works
 
-The 660's front panel is five momentary push buttons (Power, and speeds I–IV) feeding a logic-level controller. Each button is a 2-leg switch: one leg on a shared common rail (ground), the other on a signal line the controller holds high through an internal pull-up. Pressing a button shorts the signal line to ground; the controller reads that as a press. Measured idle voltage on the signal lines was **~4.89V** (active-low, 5V logic).
+The 660's front panel is five momentary push buttons (Power, and speeds I–IV) feeding a logic-level controller. Each button is a 2-leg switch: one leg on a shared common rail (ground), the other on a signal line the controller holds high through an internal pull-up. Pressing a button shorts the signal line to ground; the controller reads that as a press. Measured idle voltage on the signal lines was **\~4.89V** (active-low, 5V logic).
 
 To emulate a press, each button gets an **NPN transistor wired as a low-side switch** across it. The ESP32 drives the transistor base through a 1kΩ resistor; the transistor saturates and pulls the button's signal line to ground, electrically identical to a fingertip.
 
