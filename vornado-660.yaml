@@ -1,0 +1,150 @@
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Vornado Setup"
+
+esphome:
+  name: vornado-660
+  friendly_name: Vornado 660
+  on_boot:
+    # Runs last, after the saved fan_is_on global has been restored.
+    # The fan hardware always comes back OFF after losing power, so if this
+    # boot was caused by power being applied (outage/unplug), force our
+    # tracked state to match reality instead of trusting the saved value.
+    # Software reboots (OTA etc.) don't power-cycle the fan, so the saved
+    # value stays trusted there.
+    priority: -100
+    then:
+      - lambda: |-
+          auto reason = esp_reset_reason();
+          if (reason == ESP_RST_POWERON || reason == ESP_RST_BROWNOUT) {
+            id(fan_is_on) = false;
+            id(vornado).state = false;
+            id(vornado).publish_state();
+          }
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+captive_portal:
+api:
+ota:
+  - platform: esphome
+
+globals:
+  - id: fan_is_on
+    type: bool
+    restore_value: yes
+    initial_value: "false"
+
+output:
+  - { platform: gpio, pin: GPIO23, id: btn_power }
+  - { platform: gpio, pin: GPIO18, id: btn_s1 }
+  - { platform: gpio, pin: GPIO19, id: btn_s2 }
+  - { platform: gpio, pin: GPIO21, id: btn_s3 }
+  - { platform: gpio, pin: GPIO22, id: btn_s4 }
+
+script:
+  # mode: queued, so rapid commands queue as distinct taps instead of merging
+  # into one long press; the trailing delay enforces a release gap.
+  - id: tap_power
+    mode: queued
+    then: [output.turn_on: btn_power, delay: 150ms, output.turn_off: btn_power, delay: 250ms]
+  - id: tap_s1
+    mode: queued
+    then: [output.turn_on: btn_s1, delay: 150ms, output.turn_off: btn_s1, delay: 250ms]
+  - id: tap_s2
+    mode: queued
+    then: [output.turn_on: btn_s2, delay: 150ms, output.turn_off: btn_s2, delay: 250ms]
+  - id: tap_s3
+    mode: queued
+    then: [output.turn_on: btn_s3, delay: 150ms, output.turn_off: btn_s3, delay: 250ms]
+  - id: tap_s4
+    mode: queued
+    then: [output.turn_on: btn_s4, delay: 150ms, output.turn_off: btn_s4, delay: 250ms]
+  - id: tap_speed
+    parameters:
+      s: int
+    then:
+      - lambda: |-
+          if (s == 1) id(tap_s1).execute();
+          else if (s == 2) id(tap_s2).execute();
+          else if (s == 3) id(tap_s3).execute();
+          else if (s == 4) id(tap_s4).execute();
+
+# Primary control: expose THIS entity to HomeKit. Shows as a fan accessory:
+# tap the tile to toggle, press into it for the 4-step speed slider.
+fan:
+  - platform: template
+    name: "Vornado 660"
+    id: vornado
+    speed_count: 4
+    has_oscillating: false
+    on_turn_on:
+      - if:
+          condition:
+            lambda: "return !id(fan_is_on);"
+          then:
+            - script.execute: tap_power
+            - lambda: "id(fan_is_on) = true;"
+      # Give the fan's controller time to fully wake after the power press
+      # before sending a speed press; a speed press it ignores while still
+      # "off" looks like a missed tap.
+      - delay: 400ms
+      - script.execute:
+          id: tap_speed
+          s: !lambda "return (int)(id(vornado).speed);"
+    on_turn_off:
+      - if:
+          condition:
+            lambda: "return id(fan_is_on);"
+          then:
+            - script.execute: tap_power
+            - lambda: "id(fan_is_on) = false;"
+    on_speed_set:
+      - if:
+          condition:
+            lambda: "return !id(fan_is_on);"
+          then:
+            - script.execute: tap_power
+            - lambda: "id(fan_is_on) = true;"
+            - delay: 400ms
+      - script.execute:
+          id: tap_speed
+          s: !lambda "return (int)(x);"
+
+# Utility buttons: keep these OUT of the HomeKit filter; they live in HA only.
+button:
+  # Stateless escape hatch: exactly one tap of the physical power button,
+  # and the tracked state flips to follow. Use when you want raw control.
+  - platform: template
+    name: "Power Tap (raw)"
+    icon: mdi:power
+    on_press:
+      - script.execute: tap_power
+      - lambda: |-
+          id(fan_is_on) = !id(fan_is_on);
+          id(vornado).state = id(fan_is_on);
+          id(vornado).publish_state();
+  # Recovery: if the entity ever reads inverted from reality, press the
+  # matching button to resync the tracked state WITHOUT touching the fan.
+  - platform: template
+    name: "Sync: Fan Is Actually ON"
+    icon: mdi:fan-alert
+    on_press:
+      - lambda: |-
+          id(fan_is_on) = true;
+          id(vornado).state = true;
+          id(vornado).publish_state();
+  - platform: template
+    name: "Sync: Fan Is Actually OFF"
+    icon: mdi:fan-off
+    on_press:
+      - lambda: |-
+          id(fan_is_on) = false;
+          id(vornado).state = false;
+          id(vornado).publish_state();
